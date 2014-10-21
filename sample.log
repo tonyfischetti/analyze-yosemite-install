@@ -1,0 +1,10 @@
+Oct 18 11:28:23 localhost opendirectoryd[123]: opendirectoryd (build 382.0) launched - installer mode
+Oct 18 11:28:23 localhost opendirectoryd[123]: Logging level limit changed to 'notice'
+Oct 18 11:28:23 localhost opendirectoryd[123]: Initialize trigger support
+Oct 18 11:28:23 localhost opendirectoryd[123]: created endpoint for mach service 'com.apple.private.opendirectoryd.rpc'
+Oct 18 11:28:23 localhost opendirectoryd[123]: set default handler for RPC 'reset_cache'
+Oct 18 11:28:23 localhost opendirectoryd[123]: set default handler for RPC 'reset_statistics'
+Oct 18 11:28:23 localhost opendirectoryd[123]: set default handler for RPC 'show'
+Oct 18 11:28:23 localhost opendirectoryd[123]: starting endpoint for service 'com.apple.private.opendirectoryd.rpc'
+Oct 18 11:28:23 localhost configd[113]: adding  com.apple.SystemConfiguration.InterfaceNamer
+Oct 18 11:28:23 localhost configd[113]: adding  com.apple.SystemConfiguration.SCNetworkReachability
