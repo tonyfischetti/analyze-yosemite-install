@@ -8,8 +8,12 @@ use warnings;
 
 # read from stdin
 while(<>){
+    chomp;
     my $line = $_;
-    my ($not_message, $message) = split ': ', $line;
+    my ($not_message, $message) = split ': ', $line, 2;
+
+    # skip lines with blank messages
+    next if $message =~ m/^\s*$/;
 
     # get rid of bracketed numbers
     $not_message =~ s/\[\d+\]//;
