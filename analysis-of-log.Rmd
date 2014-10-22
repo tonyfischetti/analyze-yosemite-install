@@ -1,0 +1,97 @@
+---
+title: "Why is my OS X Yosemite Install Taking So Long?: An Analysis"
+author: "Tony Fischetti"
+date: "October 21, 2014"
+output: html_document
+---
+
+-------
+
+### why?
+Since the latest Mac OS X update, 10.10 "Yosemite", was released last Thursday,
+there have been complaints springing up online 
+
+
+### cleaning
+
+The log file from the Yosemite installer wasn't in a format that R (or any
+program) could handle natively so before we can use it, we have to clean/munge
+it. To do this, we'll write a program in the mother of all text-processing
+languages: perl.
+
+This script will read the log file, line-by-line from standard input (for
+easy shell piping), and spit out nicely formatted tab-delimited lines.
+
+```
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+# read from stdin
+while(<>){
+    chomp;
+    my $line = $_;
+    my ($not_message, $message) = split ': ', $line, 2;
+
+    # skip lines with blank messages
+    next if $message =~ m/^\s*$/;
+
+    # get rid of bracketed numbers
+    $not_message =~ s/\[\d+\]//;
+
+    my ($month, $day, $time, $machine, $service) = split " ", $not_message;
+
+    # print "Month: $month\n";
+    # print "Day: $day\n";
+    # print "Time: $time\n";
+    # print "Machine: $machine\n";
+    # print "Service: $service\n\n";
+
+    print join("\t", $month, $day, $time, $machine, $service, $message) . "\n";
+}
+```
+
+We can output the cleaned log file with this shell command:
+
+```
+echo "Month\tDay\tTime\tMachine\tService\tMessage" > cleaned.log
+grep '^Oct' ./YosemiteInstall.log | grep -v ']:  ' | grep -v ': }' |  ./clean-log.pl >> cleaned.log
+```
+
+### analysis
+
+Let's set some options and load the libraries we are going to use:
+
+```{r, message=FALSE, warning=FALSE}
+# options
+options(echo=TRUE)
+options(stringsAsFactors=FALSE)
+
+# libraries
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(reshape2)
+```
+
+
+Let's read the log file that I cleaned and add a few columns with correctly
+parsed timestamp
+
+```{r, warning=FALSE}
+yos.log <- read.delim("./cleaned.log", sep="\t") %>%
+  mutate(nice.date=paste(Month, Day, "2014", Time)) %>%
+  mutate(lub.time=parse_date_time(nice.date, 
+                                  "%b %d! %Y! %H!:%M!:%S!", 
+                                  tz="EST"))
+```
+
+And remove the rows of dates that didn't parse correctly
+```{r}
+yos.log <- yos.log[!is.na(yos.log$lub.time),]
+
+head(yos.log)
+```
+
+
