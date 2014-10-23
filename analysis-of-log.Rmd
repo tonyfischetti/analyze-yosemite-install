@@ -1,5 +1,5 @@
 ---
-title: "Why is my OS X Yosemite Install Taking So Long?: An Analysis"
+title: "Why is my OS X Yosemite install taking so long?: an analysis"
 author: "Tony Fischetti"
 date: "October 21, 2014"
 output: html_document
@@ -26,7 +26,7 @@ last minute.
 
 (a) Not knowing very much about OS X's installation process and wanting to learn
 more, and
-(b) wanting to answer why the installation was taking longer that the progress bar expected, I saved the log to a file on my disk with the intention of analyzing
+(b) wanting to answer why the installation was taking longer than the progress bar expected, I saved the log to a file on my disk with the intention of analyzing
 it before the installer automatically restarted my computer.
 
 
@@ -93,7 +93,7 @@ library(reshape2)
 
 
 Let's read the log file that I cleaned and add a few columns with correctly
-parsed timestamp using lubridate's "parse_date_time()" function
+parsed timestamps using lubridate's "parse_date_time()" function
 
 ```{r, warning=FALSE}
 yos.log <- read.delim("./cleaned.log", sep="\t") %>%
