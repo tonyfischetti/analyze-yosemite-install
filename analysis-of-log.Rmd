@@ -9,14 +9,32 @@ output: html_document
 
 ### why?
 Since the latest Mac OS X update, 10.10 "Yosemite", was released last Thursday,
-there have been complaints springing up online 
+there have been complaints springing up online of the progress bar
+woefully underestimating the actual time to complete installation. More
+specifically, it appeared as if, for a certain group of people (myself included),
+the installer would stall out at "two minutes remaining" or "less than a minute
+remaining"-sometimes for hours.
+
+In the vast majority of these cases, though, the installation process didn't
+hang, it was just performing a bunch of unexpected tasks that it couldn't
+predict.
+
+During the install, striking "Command" + "L" would bring up the install logs. 
+In my case, the logs indicated that the installer was busy right until the very
+last minute.
+
+
+(a) Not knowing very much about OS X's installation process and wanting to learn
+more, and
+(b) wanting to answer why the installation was taking longer that the progress bar expected, I saved the log to a file on my disk with the intention of analyzing
+it before the installer automatically restarted my computer.
 
 
 ### cleaning
 
 The log file from the Yosemite installer wasn't in a format that R (or any
 program) could handle natively so before we can use it, we have to clean/munge
-it. To do this, we'll write a program in the mother of all text-processing
+it. To do this, we'll write a program in the queen of all text-processing
 languages: perl.
 
 This script will read the log file, line-by-line from standard input (for
@@ -42,12 +60,6 @@ while(<>){
 
     my ($month, $day, $time, $machine, $service) = split " ", $not_message;
 
-    # print "Month: $month\n";
-    # print "Day: $day\n";
-    # print "Time: $time\n";
-    # print "Machine: $machine\n";
-    # print "Service: $service\n\n";
-
     print join("\t", $month, $day, $time, $machine, $service, $message) . "\n";
 }
 ```
@@ -58,6 +70,10 @@ We can output the cleaned log file with this shell command:
 echo "Month\tDay\tTime\tMachine\tService\tMessage" > cleaned.log
 grep '^Oct' ./YosemiteInstall.log | grep -v ']:  ' | grep -v ': }' |  ./clean-log.pl >> cleaned.log
 ```
+
+This cleaned log contains 6 fields: 'Month', 'Day', 'Time', 'Machine (host)', 'Service', and 'Message'. The installation didn't span days (it didn't even
+span an hour) so *technically* I didn't need the 'Month' and 'Day' fields, but
+I left them in for completeness' sake.
 
 ### analysis
 
@@ -77,7 +93,7 @@ library(reshape2)
 
 
 Let's read the log file that I cleaned and add a few columns with correctly
-parsed timestamp
+parsed timestamp using lubridate's "parse_date_time()" function
 
 ```{r, warning=FALSE}
 yos.log <- read.delim("./cleaned.log", sep="\t") %>%
@@ -95,3 +111,209 @@ head(yos.log)
 ```
 
 
+The first question I had was how long the installation process took
+
+```{r}
+install.time <- yos.log[nrow(yos.log), "lub.time"] - yos.log[1, "lub.time"]
+(as.duration(install.time))
+```
+
+Ok, about a half-hour.
+
+Let's make a column for cumulative time by subtracting each row's time by
+the start time
+```{r}
+yos.log$cumulative <- yos.log$lub.time - min(yos.log$lub.time, na.rm=TRUE)
+```
+
+
+In order to see what processes were taking the longest, we have to make a
+column for elapsed time. To do this, we can subtract each row's time from the
+time of the subsequent row.
+
+```{r}
+yos.log$elapsed <- lead(yos.log$lub.time) - yos.log$lub.time
+
+# remove last row
+yos.log <- yos.log[-nrow(yos.log),]
+```
+
+
+Which services were responsible for the most writes to the log and what services
+took the longest? We can find out with the following elegant dplyr construct.
+While we're at it, we should add columns for percentange of the whole for
+easy plotting
+
+```{r}
+counts <- yos.log %>%
+  group_by(Service) %>%
+  summarise(n=n(), totalTime=sum(elapsed)) %>%
+  arrange(desc(n)) %>%
+  top_n(8, n) %>%
+  mutate(percent.n = n/sum(n)) %>%
+  mutate(percent.totalTime = as.numeric(totalTime)/sum(as.numeric(totalTime)))
+(counts)
+```
+
+Ok, the "OSInstaller" is responsible for the vast majority of the writes to the
+log and to the total time of the installation. "opendirectoryd" was the next
+most verbose process, but its processes were relatively quick compared to the
+"Unknown" process' as evidenced by "Unknown" taking almost 4 times longer, in
+aggregate, in spite of having only 7% of "opendirectoryd"'s log entries.
+
+We can more intuitively view the number-of-entries/time-taken mismatch thusly:
+```{r, message=FALSE}
+melted <- melt(as.data.frame(counts[,c("Service",
+                                       "percent.n",
+                                       "percent.totalTime")]))
+
+ggplot(melted, aes(x=Service, y=as.numeric(value), fill=factor(variable))) +
+  geom_bar(width=.8, stat="identity", position = "dodge",) +
+  ggtitle("Breakdown of services during installation by writes to log") +
+  ylab("percent") + xlab("service") +
+  scale_fill_discrete(name="Percent of",
+                      breaks=c("percent.n", "percent.totalTime"),
+                      labels=c("writes to logfile", "time elapsed"))
+```
+
+As you can see, the "Unknown" process took a disproportionately long time
+for its relatively few log entries; the opposite behavior is observed with 
+"opendirectoryd". The other processes contribute very little to both the number
+of log entries and the total time in the installation process.
+
+What were the 5 most lengthy processes?
+```{r}
+yos.log %>%
+  arrange(desc(elapsed)) %>%
+  select(Service, Message, elapsed) %>%
+  head(n=5)
+```
+
+The top processes were:
+
+1. Unpacking and moving the contents of "Essentials.pkg" into what is to become
+   the newsystem directory structure. This ostensibly contains items like all
+   the updated applications (Safari, Mail, etc..). **(almost three minutes)**
+   
+2. Archiving the old system logs **(two and a half minutes)**
+
+3. Loading the kernel module that allows the onboard serial ATA controller
+   to work **(a little over a minute)**
+  
+
+Let's view a density plot of the number of writes to the log file during
+installation.
+```{r}
+ggplot(yos.log, aes(x=lub.time)) +
+  geom_density(adjust=3, fill="#0072B2") +
+  ggtitle("Density plot of number of writes to log file during installation") +
+  xlab("time") + ylab("")
+```
+
+This graph is very illuminating; the vast majority of log file writes were 
+the result of very quick processes that took place in the last 15 minutes of
+the install, **which is when the progress bar read that only two minutes
+were remaining.**
+
+In particular, there were a very large number of log file writes between 11:47
+and 11:48; what was going on here?
+
+```{r}
+
+# if the first time is in between the second two, this returns TRUE
+is.in <- function(time, start, end){
+  if(time > start && time < end)
+    return(TRUE)
+  return(FALSE)
+}
+
+the.start <- ymd_hms("14-10-18 11:47:00", tz="EST")
+the.end <- ymd_hms("14-10-18 11:48:00", tz="EST")
+
+# logical vector containing indices of writes in time interval
+is.in.interval <- sapply(yos.log$lub.time, is.in,
+                         the.start,
+                         the.end)
+
+# extract only these rows
+in.interval <- yos.log[is.in.interval, ]
+
+# what do they look like?
+silence <- in.interval %>%
+  select(Message) %>%
+  sample_n(7) %>%
+  apply(1, function (x){cat("\n");cat(x);cat("\n")})
+```
+
+Ah, so these processes are the result of the installer having to move files
+back into the new installation directory structure. In particular, the vast
+majority of these move operations are moving files related to a program called
+"texlive". I'll explain why this is to blame for the inaccurate projected time
+to completion in the next section.
+
+
+But lastly, let's view a faceted density plot of the number of log files writes by
+process. This might give us a sense of what steps go on as the installation
+progresses by showing us with processes are most active.
+
+```{r}
+# reduce number of service to a select few of the most active
+smaller <- yos.log %>%
+  filter(Service %in% c("OSInstaller", "opendirectoryd",
+                        "Unknown", "OS"))
+
+ggplot(smaller, aes(x=lub.time, color=Service)) +
+  geom_density(aes( y = ..scaled..)) +
+  ggtitle("Faceted density of log file writes by process (scaled)") +
+  xlab("time") + ylab("")
+```
+
+
+This shows that no one process runs consistently throughout the entire
+installation process, but rather that the process run in spurts.
+
+
+### the answer
+
+The vast majority of Mac users don't place strange files in certain special
+system-critical locations like '/usr/local/' and '/Library/'. Among those
+who do, though, these directories are littered with hundreds and hundreds
+of custom files that the installer doesn't and can't have prior knowledge of.
+
+In my case, and probably many others, the estimated time-to-completion was
+inaccurate because the installer couldn't anticipate needing to copy
+back so many files to certain special directories after unpacking
+the contents of the new OS. Additionally, for each of these copied files,
+the installer had to make sure the subdirectories had the exact same meta-data
+(permissions, owner, reference count, creation date, etc...) as before the
+installation began. This entire process added many minutes to the procedure
+at a point when the installer thought it was pretty much done.
+
+
+
+What were some of the files that the installer needed to copy back?
+The answer will be different for each system but, as mentioned above, anything
+placed '/usr/local' and '/Library' directories that wasn't Apple-supplied
+needed to be moved and moved back.
+
+**/usr/local/**
+/usr/local/ is used chiefly for user-installed software that isn't part
+of the OS distribution. In my case, my /usr/local contained a custom compliled
+Vim; ClamXAV, a lightweight virus scanner that I use only for the benefit of my
+Windows-using friends; and texlive, software for the TeX typesetting system. 
+texlive was, by far, the biggest time-sink since it had over 123,491 files.
+
+In addition to these programs, many users might find that the Homebrew package
+manager is to blame for their long installation process, since this software
+also uses the /usr/local prefix (although it probably should not).
+
+**/Library/**
+Among other things, this directory holds (subdirectories that hold) modules
+and packages that the Apple-supplied Python, Ruby, and Perl uses. If you
+use these Apple-supplied versions of these languages and you install your
+own packages/modules using super-user privileges, the new packages will go
+into this directory and it will appear foreign to the Yosemite installer.
+
+To get around this issue, either install packages/modules in a local
+(non-system) library, or use alternate versions of these programming languages
+that you either download and install yourself, or use MacPorts to install.
